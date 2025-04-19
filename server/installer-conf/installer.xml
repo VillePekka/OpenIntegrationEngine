@@ -4,7 +4,7 @@
                      xsi:schemaLocation="http://izpack.org/schema/installation http://izpack.org/schema/5.0/izpack-installation-5.0.xsd">
     <info>
         <appname>OpenIntegrationEngine</appname>
-        <appversion>4.5.2</appversion>
+        <appversion>$version</appversion>
         <url>https://openintegrationengine.org/</url>
         <!--authors>
             <author name="dev" email="dev@openintegrationengine.org/"/>
@@ -44,12 +44,22 @@
         <res id="CustomLangPack.xml_eng" src="installer-conf/customLangPack_eng.xml" />
         <res id="LicencePanel.licence" src="../LICENSE"/>
         <res id="Heading.image" src="installer-conf/oie-installer-logo.png"/>
+        <res id="BSFActionsSpec.xml" src="installer-conf/bsf-actions-spec.xml"/>
         <!--res id="Splash.image" src="../oie-logo.png"/-->
     </resources>
+
+    <jar src="${basedir}/installer-conf/lib/bsf-2.4.0.jar" stage="both"/>
+    <jar src="${basedir}/installer-conf/lib/bsh-2.1.1.jar" stage="both"/>
+    <jar src="${basedir}/lib/commons/commons-logging-1.2.jar" stage="both"/>
+
+    <listeners>
+        <listener classname="BSFInstallerListener" stage="install"/>
+    </listeners>
+
     <panels>
         <panel classname="HelloPanel" id="panel.hello"/>
         <panel classname="LicencePanel" id="panel.license"/>
-        <panel classname="TargetPanel" id="panel.target">
+        <panel classname="TargetPanel">
             <configuration>
                 <ShowCreateDirectoryMessage>false</ShowCreateDirectoryMessage>
             </configuration>
@@ -58,9 +68,13 @@
         <panel classname="FinishPanel" id="panel.finish"/>
     </panels>
     <packs>
-        <pack name="setup" required="true" hidden="false" preselected="true" uninstall="true">
+        <pack name="copy-libraries" required="true" hidden="false" preselected="true" uninstall="true">
             <description>The setup files</description>
-            <fileset dir="setup" override="true"/>
+            <fileset dir="setup" override="true" excludes="conf/**"/>
+        </pack>
+        <pack name="conf-setup" required="true" hidden="false" preselected="true" uninstall="true">
+            <description>The configuration files</description>
+            <fileset dir="setup/conf" targetdir="${INSTALL_PATH}/conf-$version" override="true"/>
         </pack>
     </packs>
 </izpack:installation>

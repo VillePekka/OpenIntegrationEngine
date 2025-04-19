@@ -3,6 +3,7 @@
                  xmlns:izpack="http://izpack.org/schema/langpack"
                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                  xsi:schemaLocation="http://izpack.org/schema/langpack http://izpack.org/schema/5.0/izpack-langpack-5.0.xsd">
-    <str id="panel.target.headline" txt="Installation Directory"/>
+    <str id="TargetPanel.headline" txt="Installation Directory"/>
     <str id="installer.reversetitle" txt="OpenIntegrationEngine v$version Installer"/>
+    <str id="TargetPanel.exists_warn" txt="The directory already exists! Are you sure you want to install here and possibly overwrite existing library files?. The new configuration data will be written to conf-${version} directory"/>
 </izpack:langpack>
