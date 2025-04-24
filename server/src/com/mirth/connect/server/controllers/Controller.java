@@ -9,6 +9,6 @@
 
 package com.mirth.connect.server.controllers;
 
-public abstract class Controller {
+public abstract class Controller implements IController {
 
 }

@@ -26,14 +26,14 @@ public class ExtensionStatuses implements ExtensionStatusInterface {
     private Properties mirthProperties = new Properties();
     private ExtensionStatusProvider provider;
 
-    public static ExtensionStatuses getInstance() {
+    public static ExtensionStatuses init(Properties properties) {
         ExtensionStatuses provider = instance;
 
         if (provider == null) {
             synchronized (ExtensionStatuses.class) {
                 provider = instance;
                 if (provider == null) {
-                    instance = provider = new ExtensionStatuses();
+                    instance = provider = new ExtensionStatuses(properties);
                 }
             }
         }
@@ -41,24 +41,18 @@ public class ExtensionStatuses implements ExtensionStatusInterface {
         return provider;
     }
 
-    private ExtensionStatuses() {
+    public static ExtensionStatuses getInstance() {
+        return instance;
+    }
+
+    private ExtensionStatuses(Properties properties) {
         try {
             logger = new LoggerWrapper(Thread.currentThread().getContextClassLoader().loadClass("org.apache.log4j.Logger").getMethod("getLogger", Class.class).invoke(null, ExtensionStatuses.class));
         } catch (Throwable t) {
             logger = new LoggerWrapper(null);
         }
 
-        try {
-            InputStream is = new FileInputStream(new File("./conf/mirth.properties"));
-            try {
-                mirthProperties.load(is);
-            } finally {
-                IOUtils.closeQuietly(is);
-            }
-        } catch (Exception e) {
-            logger.error("Unable to read mirth.properties.", e);
-        }
-
+        mirthProperties = properties;
         String providerClass = mirthProperties.getProperty("extension.properties.provider");
 
         if (providerClass != null && !providerClass.isEmpty() && !"file".equalsIgnoreCase(providerClass)) {

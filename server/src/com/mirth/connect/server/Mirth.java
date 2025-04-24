@@ -18,12 +18,9 @@ import java.net.ServerSocket;
 import java.nio.charset.Charset;
 import java.sql.DriverManager;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.List;
-import java.util.Timer;
-import java.util.TimerTask;
+import java.util.*;
 
+import com.mirth.connect.interfaces.IMirth;
 import org.apache.commons.configuration2.PropertiesConfiguration;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -71,7 +68,7 @@ import com.mirth.connect.server.util.javascript.MirthContextFactory;
  * Instantiate a Mirth server that listens for commands from the CommandQueue.
  * 
  */
-public class Mirth extends Thread {
+public class Mirth extends Thread  implements IMirth {
 
     private Logger logger = LogManager.getLogger(this.getClass());
     private boolean running = false;
@@ -92,9 +89,19 @@ public class Mirth extends Thread {
 
     private static List<Thread> shutdownHooks = new ArrayList<Thread>();
 
+    /** properties that take precedence over the ones present in mirth.properties */
+    private Properties overridingProperties = null;
+
     static {
         // Disable Threadlocals for log4j 2.x, since it messes with the server log
         System.setProperty("log4j2.enableThreadlocals", "false");
+    }
+
+    public Mirth() {
+    }
+
+    public Mirth(Properties overridingProperties) {
+        this.overridingProperties = overridingProperties;
     }
 
     public static void main(String[] args) {
@@ -186,6 +193,11 @@ public class Mirth extends Thread {
         try {
             mirthPropertiesStream = ResourceUtil.getResourceStream(this.getClass(), "mirth.properties");
             mirthProperties = PropertiesConfigurationUtil.create(mirthPropertiesStream);
+            if(overridingProperties != null) {
+                for(Map.Entry<Object, Object> e : overridingProperties.entrySet()) {
+                    mirthProperties.setProperty((String)e.getKey(), e.getValue());
+                }
+            }
         } catch (Exception e) {
             logger.error("could not load mirth.properties", e);
         } finally {

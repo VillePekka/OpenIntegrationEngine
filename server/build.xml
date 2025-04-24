@@ -1023,6 +1023,7 @@
 
 		<!-- create the mirth-launcher jar -->
 		<jar destfile="${setup}/${mirth-launcher.jar}" basedir="${classes}">
+			<include name="com/mirth/connect/interfaces/IMirth.class" />
 			<include name="com/mirth/connect/server/launcher/**" />
 			<include name="com/mirth/connect/server/extprops/**" />
 

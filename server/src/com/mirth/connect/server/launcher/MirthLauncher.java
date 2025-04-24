@@ -9,16 +9,11 @@
 
 package com.mirth.connect.server.launcher;
 
-import java.io.File;
-import java.io.FileFilter;
-import java.io.FileInputStream;
-import java.io.IOException;
+import java.io.*;
+import java.lang.reflect.Constructor;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Properties;
+import java.util.*;
 import java.util.jar.JarFile;
 
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -40,97 +35,92 @@ public class MirthLauncher {
     private static final String EXTENSIONS_DIR = "./extensions";
     private static final String SERVER_LAUNCHER_LIB_DIR = "./server-launcher-lib";
     private static final String MIRTH_PROPERTIES_FILE = "./conf/mirth.properties";
-    private static final String PROPERTY_APP_DATA_DIR = "dir.appdata";
-    private static final String PROPERTY_INCLUDE_CUSTOM_LIB = "server.includecustomlib";
-    private static final String[] LOG4J_JAR_FILES = { "./server-lib/log4j/log4j-core-2.17.2.jar",
+    public static final String PROPERTY_APP_DATA_DIR = "dir.appdata";
+    protected static final String PROPERTY_INCLUDE_CUSTOM_LIB = "server.includecustomlib";
+    protected static final String[] LOG4J_JAR_FILES = { "./server-lib/log4j/log4j-core-2.17.2.jar",
             "./server-lib/log4j/log4j-api-2.17.2.jar",
             "./server-lib/log4j/log4j-1.2-api-2.17.2.jar" };
+    protected static String MIRTH_CLIENT_CORE_JAR_RELATIVE_PATH = "server-lib/mirth-client-core.jar";
 
-    private static String appDataDir = null;
+    protected static LoggerWrapper logger;
 
-    private static LoggerWrapper logger;
-
-    public static void main(String[] args) {
-        JarFile mirthClientCoreJarFile = null;
-        try {
-            List<URL> classpathUrls = new ArrayList<>();
-            // Always add log4j
-            for (String log4jJar : LOG4J_JAR_FILES) {
-                classpathUrls.add(new File(log4jJar).toURI().toURL());
-            }
-            classpathUrls.addAll(addServerLauncherLibJarsToClasspath());
-            URLClassLoader mirthLauncherClassLoader = new URLClassLoader(classpathUrls.toArray(new URL[classpathUrls.size()]), Thread.currentThread().getContextClassLoader());
-            Thread.currentThread().setContextClassLoader(mirthLauncherClassLoader);
-
-            // Disable Threadlocals for log4j 2.x, since it messes with the server log
-            System.setProperty("log4j2.enableThreadlocals", "false");
-
-            logger = new LoggerWrapper(mirthLauncherClassLoader.loadClass("org.apache.logging.log4j.LogManager").getMethod("getLogger", Class.class).invoke(null, MirthLauncher.class));
-
-            try {
-                uninstallPendingExtensions();
-                installPendingExtensions();
-            } catch (Exception e) {
-                logger.error("Error uninstalling or installing pending extensions.", e);
-            }
-
-            Properties mirthProperties = new Properties();
-            String includeCustomLib = null;
-
-            try (FileInputStream inputStream = new FileInputStream(new File(MIRTH_PROPERTIES_FILE))) {
-                mirthProperties.load(inputStream);
-                includeCustomLib = mirthProperties.getProperty(PROPERTY_INCLUDE_CUSTOM_LIB);
-                createAppdataDir(mirthProperties);
-            } catch (Exception e) {
-                logger.error("Error creating the appdata directory.", e);
-            }
-
-            ManifestFile mirthServerJar = new ManifestFile("server-lib/mirth-server.jar");
-            ManifestFile mirthClientCoreJar = new ManifestFile("server-lib/mirth-client-core.jar");
-            ManifestDirectory serverLibDir = new ManifestDirectory("server-lib");
-            serverLibDir.setExcludes(new String[] { "mirth-client-core.jar" });
-
-            List<ManifestEntry> manifestList = new ArrayList<ManifestEntry>();
-            manifestList.add(mirthServerJar);
-            manifestList.add(mirthClientCoreJar);
-            manifestList.add(serverLibDir);
-
-            // We want to include custom-lib if the property isn't found, or if it equals "true"
-            if (includeCustomLib == null || Boolean.valueOf(includeCustomLib)) {
-                manifestList.add(new ManifestDirectory("custom-lib"));
-            }
-
-            ManifestEntry[] manifest = manifestList.toArray(new ManifestEntry[manifestList.size()]);
-
-            // Get the current server version
-            mirthClientCoreJarFile = new JarFile(mirthClientCoreJar.getName());
-            Properties versionProperties = new Properties();
-            versionProperties.load(mirthClientCoreJarFile.getInputStream(mirthClientCoreJarFile.getJarEntry("version.properties")));
-            String currentVersion = versionProperties.getProperty("mirth.version");
-
-            addManifestToClasspath(manifest, classpathUrls);
-            addExtensionsToClasspath(classpathUrls, currentVersion);
-            URLClassLoader classLoader = new URLClassLoader(classpathUrls.toArray(new URL[classpathUrls.size()]), Thread.currentThread().getContextClassLoader());
-            Class<?> mirthClass = classLoader.loadClass("com.mirth.connect.server.Mirth");
-            Thread mirthThread = (Thread) mirthClass.newInstance();
-            mirthThread.setContextClassLoader(classLoader);
-            mirthThread.start();
-        } catch (Exception e) {
-            e.printStackTrace();
-        } finally {
-            try {
-                if (mirthClientCoreJarFile != null) {
-                    mirthClientCoreJarFile.close();
-                }
-            } catch (IOException e) {
-                logger.error("Error closing mirthClientCoreJarFile.", e);
-            }
+    protected Thread launch(File baseDir, Properties overridingPropertie, List<URL> classpathUrls) throws Exception {
+        Properties serverProperties = readProperties(baseDir);
+        if(overridingPropertie != null) {
+            serverProperties.putAll(overridingPropertie);
         }
+
+        if(classpathUrls == null) {
+            classpathUrls = new ArrayList<>();
+        }
+
+        // Always add log4j
+        for (String log4jJar : LOG4J_JAR_FILES) {
+            classpathUrls.add(new File(baseDir, log4jJar).toURI().toURL());
+        }
+
+        addServerLauncherLibJarsToClasspath(baseDir, classpathUrls);
+        URLClassLoader mirthLauncherClassLoader = new URLClassLoader(classpathUrls.toArray(new URL[classpathUrls.size()]), Thread.currentThread().getContextClassLoader());
+        Thread.currentThread().setContextClassLoader(mirthLauncherClassLoader);
+
+        // Disable Threadlocals for log4j 2.x, since it messes with the server log
+        System.setProperty("log4j2.enableThreadlocals", "false");
+
+        logger = new LoggerWrapper(mirthLauncherClassLoader.loadClass("org.apache.logging.log4j.LogManager").getMethod("getLogger", Class.class).invoke(null, MirthLauncher.class));
+
+        createAppdataDir(baseDir, serverProperties);
+        ExtensionStatuses.init(serverProperties);
+
+        try {
+            uninstallPendingExtensions(baseDir);
+            installPendingExtensions(baseDir);
+        } catch (Exception e) {
+            logger.error("Error uninstalling or installing pending extensions.", e);
+        }
+
+        String includeCustomLib = serverProperties.getProperty(PROPERTY_INCLUDE_CUSTOM_LIB);
+        String basedirPath = baseDir.getAbsolutePath() + File.separator;
+        ManifestFile mirthServerJar = new ManifestFile(basedirPath + "server-lib/mirth-server.jar");
+        ManifestFile mirthClientCoreJar = new ManifestFile(basedirPath + MIRTH_CLIENT_CORE_JAR_RELATIVE_PATH);
+        ManifestDirectory serverLibDir = new ManifestDirectory(basedirPath + "server-lib");
+        serverLibDir.setExcludes(new String[] { "mirth-client-core.jar" });
+
+        List<ManifestEntry> manifestList = new ArrayList<ManifestEntry>();
+        manifestList.add(mirthServerJar);
+        manifestList.add(mirthClientCoreJar);
+        manifestList.add(serverLibDir);
+
+        // We want to include custom-lib if the property isn't found, or if it equals "true"
+        if (includeCustomLib == null || Boolean.valueOf(includeCustomLib)) {
+            manifestList.add(new ManifestDirectory(basedirPath + "custom-lib"));
+        }
+
+        ManifestEntry[] manifest = manifestList.toArray(new ManifestEntry[manifestList.size()]);
+
+        String currentVersion = readVersionNumber(baseDir);
+
+        addManifestToClasspath(manifest, classpathUrls);
+        addExtensionsToClasspath(baseDir, classpathUrls, currentVersion);
+        URLClassLoader classLoader = new URLClassLoader(classpathUrls.toArray(new URL[classpathUrls.size()]), Thread.currentThread().getContextClassLoader());
+
+        Class<?> mirthClass = classLoader.loadClass("com.mirth.connect.server.Mirth");
+        Constructor<?> constructor = mirthClass.getConstructor(Properties.class);
+        Thread mirthThread = (Thread) constructor.newInstance(overridingPropertie);
+        mirthThread.setContextClassLoader(classLoader);
+        mirthThread.start();
+
+        return mirthThread;
+    }
+
+    public static void main(String[] args) throws Exception {
+        MirthLauncher launcher = new MirthLauncher();
+        File basedir = new File(".");
+        launcher.launch(basedir, null, null);
     }
 
     // if we have an uninstall file, uninstall the listed extensions
-    private static void uninstallPendingExtensions() throws Exception {
-        File extensionsDir = new File(EXTENSIONS_DIR);
+    protected void uninstallPendingExtensions(File basedir) throws Exception {
+        File extensionsDir = new File(basedir, EXTENSIONS_DIR);
         File uninstallFile = new File(extensionsDir, "uninstall");
 
         if (uninstallFile.exists()) {
@@ -154,8 +144,8 @@ public class MirthLauncher {
      * This picks up any folders in the installation temp dir and moves them over to the extensions
      * dir, in effect "installing" them.
      */
-    private static void installPendingExtensions() throws Exception {
-        File extensionsDir = new File(EXTENSIONS_DIR);
+    protected void installPendingExtensions(File basedir) throws Exception {
+        File extensionsDir = new File(basedir, EXTENSIONS_DIR);
         File extensionsTempDir = new File(extensionsDir, "install_temp");
 
         if (extensionsTempDir.exists()) {
@@ -179,15 +169,19 @@ public class MirthLauncher {
         }
     }
 
-    private static List<URL> addServerLauncherLibJarsToClasspath() {
-        File serverLauncherLibDir = new File(SERVER_LAUNCHER_LIB_DIR);
-        List<URL> classpathUrls = new ArrayList<>();
+    protected List<URL> addServerLauncherLibJarsToClasspath(File basedir, List<URL> classpathUrls) {
+        Set<String> fileNames = getClassPathFileNames();
+        File serverLauncherLibDir = new File(basedir, SERVER_LAUNCHER_LIB_DIR);
 
         if (serverLauncherLibDir.exists() && serverLauncherLibDir.isDirectory()) {
             FileFilter jarFileFilter = new WildcardFileFilter("*.jar");
             File[] jarFiles = serverLauncherLibDir.listFiles(jarFileFilter);
 
             for (File jarFile : jarFiles) {
+                if(fileNames.contains(jarFile.getName())) {
+                    System.out.println("SKIPPING " + jarFile.getName());
+                    continue;
+                }
                 try {
                     URL jarFileURL = jarFile.toURI().toURL();
                     classpathUrls.add(jarFileURL);
@@ -199,7 +193,8 @@ public class MirthLauncher {
         return classpathUrls;
     }
 
-    private static void addManifestToClasspath(ManifestEntry[] manifestEntries, List<URL> urls) throws Exception {
+    protected void addManifestToClasspath(ManifestEntry[] manifestEntries, List<URL> urls) throws Exception {
+        Set<String> fileNames = getClassPathFileNames();
         for (ManifestEntry manifestEntry : manifestEntries) {
             File manifestEntryFile = new File(manifestEntry.getName());
 
@@ -217,10 +212,18 @@ public class MirthLauncher {
                     Collection<File> pathFiles = FileUtils.listFiles(manifestEntryFile, fileFilter, FileFilterUtils.trueFileFilter());
 
                     for (File pathFile : pathFiles) {
+                        if(fileNames.contains(pathFile.getName())) {
+                            System.out.println("MANIFEST SKIPPING " + pathFile.getName());
+                            continue;
+                        }
                         logger.trace("adding library to classpath: " + pathFile.getAbsolutePath());
                         urls.add(pathFile.toURI().toURL());
                     }
                 } else {
+                    if(fileNames.contains(manifestEntryFile.getName())) {
+                        System.out.println("MANIFEST SKIPPING " + manifestEntryFile.getName());
+                        continue;
+                    }
                     logger.trace("adding library to classpath: " + manifestEntryFile.getAbsolutePath());
                     urls.add(manifestEntryFile.toURI().toURL());
                 }
@@ -230,61 +233,23 @@ public class MirthLauncher {
         }
     }
 
-    private static void addExtensionsToClasspath(List<URL> urls, String currentVersion) throws Exception {
-        FileFilter extensionFileFilter = new NameFileFilter(new String[] { "plugin.xml",
-                "source.xml", "destination.xml" }, IOCase.INSENSITIVE);
+    protected void addExtensionsToClasspath(File basedir, List<URL> urls, String currentVersion) throws Exception {
         FileFilter directoryFilter = FileFilterUtils.directoryFileFilter();
-        File extensionPath = new File(EXTENSIONS_DIR);
-
-        ExtensionStatuses extensionStatuses = ExtensionStatuses.getInstance();
+        File extensionPath = new File(basedir, EXTENSIONS_DIR);
 
         if (extensionPath.exists() && extensionPath.isDirectory()) {
             File[] directories = extensionPath.listFiles(directoryFilter);
 
             for (File directory : directories) {
-                File[] extensionFiles = directory.listFiles(extensionFileFilter);
-
-                for (File extensionFile : extensionFiles) {
-                    try {
-                		DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-                		dbf.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-                		Document document = dbf.newDocumentBuilder().parse(extensionFile);
-                		Element rootElement = document.getDocumentElement();
-
-                        boolean enabled = extensionStatuses.isEnabled(rootElement.getElementsByTagName("name").item(0).getTextContent());
-                        boolean compatible = isExtensionCompatible(rootElement.getElementsByTagName("mirthVersion").item(0).getTextContent(), currentVersion);
-
-                        // Only add libraries from extensions that are not disabled and are compatible with the current version
-                        if (enabled && compatible) {
-                            NodeList libraries = rootElement.getElementsByTagName("library");
-
-                            for (int i = 0; i < libraries.getLength(); i++) {
-                                Element libraryElement = (Element) libraries.item(i);
-                                String type = libraryElement.getAttribute("type");
-
-                                if (type.equalsIgnoreCase("server") || type.equalsIgnoreCase("shared")) {
-                                    File pathFile = new File(directory, libraryElement.getAttribute("path"));
-
-                                    if (pathFile.exists()) {
-                                        logger.trace("adding library to classpath: " + pathFile.getAbsolutePath());
-                                        urls.add(pathFile.toURI().toURL());
-                                    } else {
-                                        logger.error("could not locate library: " + pathFile.getAbsolutePath());
-                                    }
-                                }
-                            }
-                        }
-                    } catch (Exception e) {
-                        logger.error("failed to parse extension metadata: " + extensionFile.getAbsolutePath(), e);
-                    }
-                }
+                List<URL> extUrls = getExtensionClasspathUrls(directory, currentVersion);
+                urls.addAll(extUrls);
             }
         } else {
             logger.warn("no extensions found");
         }
     }
 
-    private static boolean isExtensionCompatible(String extensionVersion, String currentVersion) {
+    private boolean isExtensionCompatible(String extensionVersion, String currentVersion) {
         if (extensionVersion != null) {
             String[] extensionMirthVersions = extensionVersion.split(",");
 
@@ -303,24 +268,111 @@ public class MirthLauncher {
         return false;
     }
 
-    private static void createAppdataDir(Properties mirthProperties) {
+    protected void createAppdataDir(File basedir, Properties mirthProperties) {
         File appDataDirFile = null;
 
         if (mirthProperties.getProperty(PROPERTY_APP_DATA_DIR) != null) {
-            appDataDirFile = new File(mirthProperties.getProperty(PROPERTY_APP_DATA_DIR));
+            appDataDirFile = new File(basedir, mirthProperties.getProperty(PROPERTY_APP_DATA_DIR));
 
             if (!appDataDirFile.exists()) {
-                if (appDataDirFile.mkdir()) {
+                if (appDataDirFile.mkdirs()) {
+                    mirthProperties.put(PROPERTY_APP_DATA_DIR, appDataDirFile.getAbsolutePath());
                     logger.debug("created app data dir: " + appDataDirFile.getAbsolutePath());
                 } else {
                     logger.error("error creating app data dir: " + appDataDirFile.getAbsolutePath());
                 }
             }
         } else {
-            appDataDirFile = new File(".");
+            appDataDirFile = basedir;
         }
 
-        appDataDir = appDataDirFile.getAbsolutePath();
-        logger.debug("set app data dir: " + appDataDir);
+        logger.debug("set app data dir: " + appDataDirFile.getAbsolutePath());
+    }
+
+    protected List<URL> getExtensionClasspathUrls(File extDirectory, String currentVersion) {
+        FileFilter extensionFileFilter = new NameFileFilter(new String[] { "plugin.xml",
+                "source.xml", "destination.xml" }, IOCase.INSENSITIVE);
+            File[] extensionFiles = extDirectory.listFiles(extensionFileFilter);
+        ExtensionStatuses extensionStatuses = ExtensionStatuses.getInstance();
+        List<URL> urls = new ArrayList<>();
+        for (File extensionFile : extensionFiles) {
+            try {
+                DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+                dbf.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+                Document document = dbf.newDocumentBuilder().parse(extensionFile);
+                Element rootElement = document.getDocumentElement();
+
+                boolean enabled = extensionStatuses.isEnabled(rootElement.getElementsByTagName("name").item(0).getTextContent());
+                boolean compatible = isExtensionCompatible(rootElement.getElementsByTagName("mirthVersion").item(0).getTextContent(), currentVersion);
+
+                // Only add libraries from extensions that are not disabled and are compatible with the current version
+                if (enabled && compatible) {
+                    NodeList libraries = rootElement.getElementsByTagName("library");
+
+                    for (int i = 0; i < libraries.getLength(); i++) {
+                        Element libraryElement = (Element) libraries.item(i);
+                        String type = libraryElement.getAttribute("type");
+
+                        if (type.equalsIgnoreCase("server") || type.equalsIgnoreCase("shared")) {
+                            File pathFile = new File(extDirectory, libraryElement.getAttribute("path"));
+
+                            if (pathFile.exists()) {
+                                logger.trace("adding library to classpath: " + pathFile.getAbsolutePath());
+                                urls.add(pathFile.toURI().toURL());
+                            } else {
+                                logger.error("could not locate library: " + pathFile.getAbsolutePath());
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                logger.error("failed to parse extension metadata: " + extensionFile.getAbsolutePath(), e);
+            }
+        }
+        return urls;
+    }
+
+    protected Properties readProperties(File baseDir) throws Exception {
+        Properties mirthProperties = new Properties();
+
+        try (FileInputStream inputStream = new FileInputStream(new File(baseDir, MIRTH_PROPERTIES_FILE))) {
+            mirthProperties.load(inputStream);
+        } catch (Exception e) {
+            logger.error("Error loading mirth.properties file", e);
+            throw e;
+        }
+
+        return mirthProperties;
+    }
+
+    protected String readVersionNumber(File basedir) throws IOException {
+        JarFile mirthClientCoreJarFile = null;
+        try {
+            // Get the current server version
+            ManifestFile mirthClientCoreJar = new ManifestFile(basedir.getAbsolutePath() + File.separator + MIRTH_CLIENT_CORE_JAR_RELATIVE_PATH);
+            mirthClientCoreJarFile = new JarFile(mirthClientCoreJar.getName());
+            Properties versionProperties = new Properties();
+            versionProperties.load(mirthClientCoreJarFile.getInputStream(mirthClientCoreJarFile.getJarEntry("version.properties")));
+            String currentVersion = versionProperties.getProperty("mirth.version");
+            return currentVersion;
+        }
+        finally {
+            try {
+                if (mirthClientCoreJarFile != null) {
+                    mirthClientCoreJarFile.close();
+                }
+            } catch (IOException e) {
+                logger.error("Error closing mirthClientCoreJarFile.", e);
+            }
+        }
+    }
+
+    private Set<String> getClassPathFileNames() {
+        String[] filePaths = System.getProperty("java.class.path").split(File.pathSeparator);
+        Set<String> fileNames = new HashSet<>();
+        for(String path : filePaths) {
+            fileNames.add(new File(path).getName());
+        }
+        return fileNames;
     }
 }
