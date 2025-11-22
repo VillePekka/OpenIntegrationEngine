@@ -1198,13 +1198,11 @@
 	<target name="create-javadocs" depends="init">
 		<mkdir dir="${docs.javadocs}" />
 		
-		<javadoc sourcepath="${src}:${jdk_src_path}" destdir="${docs.javadocs.userapi}" packagenames="com.mirth.connect.server.userutil,com.mirth.connect.userutil,com.mirth.connect.plugins.httpauth.userutil" link="https://docs.oracle.com/javase/8/docs/api/">
+		<javadoc sourcepath="${src}:${jdk_src_path}" destdir="${docs.javadocs.userapi}" packagenames="com.mirth.connect.server.userutil,com.mirth.connect.userutil,com.mirth.connect.plugins.httpauth.userutil" link="https://docs.oracle.com/en/java/javase/17/docs/api/">
 			<classpath refid="classpath" />
-			<!-- Uncomment the following and add additional dashes in front of the arguments to allow Java 9+
-				<arg line="-html5"/>
-				<arg line="-add-modules java.sql.rowset"/>
-				<arg line="-add-exports java.sql.rowset/com.sun.rowset=ALL-UNNAMED"/>
-			-->
+			<arg line="-html5"/>
+			<arg line="--add-modules=java.sql.rowset"/>
+			<arg line="--add-exports=java.sql.rowset/com.sun.rowset=ALL-UNNAMED"/>
 		</javadoc>
 	</target>
 
@@ -1266,12 +1264,10 @@
 		
 		<javac srcdir="${test}" destdir="${test_classes}" debug="on" includeAntRuntime="false">
 			<classpath refid="testclasspath" />
-			<!-- Uncomment the following and add additional dashes in front of the arguments to allow Java 9+
-				<compilerarg value="-add-modules" />
-				<compilerarg value="java.sql.rowset,java.xml.ws" />
-				<compilerarg value="-add-exports" />
-				<compilerarg value="java.sql.rowset/com.sun.rowset=ALL-UNNAMED" />
-			-->
+			<compilerarg value="--add-modules=java.sql.rowset" />
+			<compilerarg value="--add-exports=java.sql.rowset/com.sun.rowset=ALL-UNNAMED" />
+			<compilerarg value="--add-exports=java.base/com.sun.crypto.provider=ALL-UNNAMED" />
+			<compilerarg value="--add-exports=java.base/sun.security.provider=ALL-UNNAMED" />
 		</javac>
 		
 		<copy todir="${test_classes}">
@@ -1285,30 +1281,55 @@
 			<include name="**/*" />
 		</jar>
 	</target>
-	
-	<taskdef uri="antlib:org.jacoco.ant" resource="org/jacoco/ant/antlib.xml">
-		<classpath path="lib/ant/jacocoant.jar"/>
-	</taskdef>
-	
+
+	<path id="jacoco.classpath">
+		<fileset dir="lib/ant">
+			<include name="org.jacoco.ant-0.8.8.jar"/>
+			<include name="org.jacoco.core-0.8.8.jar"/>
+			<include name="org.jacoco.report-0.8.8.jar"/>
+			<include name="org.jacoco.agent-0.8.8.jar"/>
+			<include name="asm-9.2.jar"/>
+			<include name="asm-tree-9.2.jar"/>
+			<include name="asm-commons-9.2.jar"/>
+		</fileset>
+	</path>
+
+	<taskdef uri="antlib:org.jacoco.ant"
+			 resource="org/jacoco/ant/antlib.xml"
+			 classpathref="jacoco.classpath"/>
+
 	<target name="test-run" depends="test-compile">
 		<property name="junit-reports" value="junit-reports" />
+		<property name="junit-html" value="junit-html" />
 		<property name="code-coverage-reports" value="code-coverage-reports" />
+		<delete dir="${junit-reports}" />
+		<delete dir="${code-coverage-reports}" />
+		<delete dir="${junit-html}" />
+
 		<mkdir dir="${junit-reports}" />
 		<mkdir dir="${code-coverage-reports}" />
-		
+		<mkdir dir="${junit-html}" />
+
 		<jacoco:coverage destfile="${code-coverage-reports}/jacoco.exec" xmlns:jacoco="antlib:org.jacoco.ant" exclclassloader="sun.reflect.DelegatingClassLoader:javassist.Loader" >
 			<junit haltonfailure="false" fork="true" forkmode="once">
 				<jvmarg value="-Xms128m" />
 				<jvmarg value="-Xmx2048m" />
-				<!-- Uncomment the following and add additional dashes in front of the arguments to allow Java 9+
-					<jvmarg value="-add-opens=java.base/java.util=ALL-UNNAMED" />
-					<jvmarg value="-add-opens=java.base/java.lang=ALL-UNNAMED" />
-					<jvmarg value="-add-opens=java.base/java.lang.reflect=ALL-UNNAMED" />
-					<jvmarg value="-add-opens=java.base/java.text=ALL-UNNAMED" />
-					<jvmarg value="-add-opens=java.desktop/java.awt=ALL-UNNAMED" />
-					<jvmarg value="-add-opens=java.desktop/java.awt.font=ALL-UNNAMED" />
-					<jvmarg value="-add-opens=java.xml/com.sun.org.apache.xalan.internal.xsltc.trax=ALL-UNNAMED" />
-				-->
+				<!-- https://stackoverflow.com/questions/54205486 -->
+				<jvmarg value="-Xshare:off" />
+				<jvmarg value="--add-exports=java.base/com.sun.crypto.provider=ALL-UNNAMED" />
+				<jvmarg value="--add-opens=java.base/java.util=ALL-UNNAMED" />
+				<jvmarg value="--add-opens=java.base/java.lang=ALL-UNNAMED" />
+				<jvmarg value="--add-opens=java.base/java.lang.reflect=ALL-UNNAMED" />
+				<jvmarg value="--add-opens=java.base/java.text=ALL-UNNAMED" />
+				<jvmarg value="--add-opens=java.base/jdk.internal.misc=ALL-UNNAMED"/>
+				<jvmarg value="--add-opens=java.desktop/java.awt=ALL-UNNAMED" />
+				<jvmarg value="--add-opens=java.desktop/java.awt.font=ALL-UNNAMED" />
+				<jvmarg value="--add-opens=java.sql/java.sql=ALL-UNNAMED"/>
+				<jvmarg value="--add-opens=java.sql.rowset/com.sun.rowset=ALL-UNNAMED"/>
+				<jvmarg value="--add-opens=java.sql.rowset/com.sun.rowset.internal=ALL-UNNAMED"/>
+				<jvmarg value="--add-opens=java.sql.rowset/com.sun.rowset.providers=ALL-UNNAMED"/>
+				<jvmarg value="--add-opens=java.sql.rowset/javax.sql.rowset=ALL-UNNAMED"/>
+				<jvmarg value="--add-opens=java.xml/com.sun.org.apache.xalan.internal.xsltc.trax=ALL-UNNAMED" />
 				<classpath>
 					<path refid="testclasspath" />
 					<dirset dir="${test_classes}"/>
@@ -1321,6 +1342,14 @@
 				</batchtest>
 			</junit>
 		</jacoco:coverage>
+
+		<!-- Generate HTML report from JUnit XML output -->
+		<junitreport todir="${junit-reports}">
+			<fileset dir="${junit-reports}">
+				<include name="TEST-*.xml"/>
+			</fileset>
+			<report format="frames" todir="${junit-html}" />
+		</junitreport>
 	</target>
 	
 	<target name="remove-classes" depends="init">
